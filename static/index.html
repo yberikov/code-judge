@@ -1,0 +1,144 @@
+<style>
+    #editor-wrap { border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); overflow: hidden; }
+    #editor-wrap:focus-within { box-shadow: 0 0 0 2px var(--color-border-info); }
+    .toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--color-background-secondary); border-bottom: 0.5px solid var(--color-border-tertiary); }
+    .lang-btn { font-size: 12px; padding: 3px 10px; border-radius: 99px; border: 0.5px solid var(--color-border-secondary); background: transparent; color: var(--color-text-secondary); cursor: pointer; transition: all 0.15s; }
+    .lang-btn.active { background: var(--color-background-primary); color: var(--color-text-primary); border-color: var(--color-border-primary); }
+    .run-btn { margin-left: auto; font-size: 13px; padding: 4px 14px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-secondary); background: var(--color-background-primary); color: var(--color-text-primary); cursor: pointer; display: flex; align-items: center; gap: 6px; }
+    .run-btn:hover { background: var(--color-background-secondary); }
+    .run-btn:active { transform: scale(0.98); }
+    #monaco-container { height: 320px; }
+    .footer { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--color-background-secondary); border-top: 0.5px solid var(--color-border-tertiary); }
+    .meta { font-size: 12px; color: var(--color-text-tertiary); display: flex; gap: 16px; }
+    .submit-btn { font-size: 13px; font-weight: 500; padding: 6px 18px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-secondary); background: var(--color-background-primary); color: var(--color-text-primary); cursor: pointer; display: flex; align-items: center; gap: 6px; }
+    .submit-btn:hover { background: var(--color-background-secondary); }
+    .submit-btn:active { transform: scale(0.98); }
+    #output-wrap { margin-top: 12px; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); overflow: hidden; display: none; }
+    #output-header { display: flex; align-items: center; justify-content: space-between; padding: 7px 12px; background: var(--color-background-secondary); border-bottom: 0.5px solid var(--color-border-tertiary); font-size: 12px; color: var(--color-text-secondary); }
+    #output-body { padding: 12px 14px; font-family: var(--font-mono); font-size: 13px; color: var(--color-text-primary); white-space: pre-wrap; min-height: 48px; background: var(--color-background-primary); }
+    #status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-text-tertiary); display: inline-block; margin-right: 6px; }
+    #status-dot.ok { background: #4caf50; }
+    #status-dot.err { background: #f44336; }
+</style>
+
+<h2 class="sr-only">Code editor form — write and submit code to the server</h2>
+
+<div id="editor-wrap">
+    <div class="toolbar">
+        <button class="lang-btn active" data-lang="javascript" onclick="setLang('javascript',this)">JS</button>
+        <button class="lang-btn" data-lang="typescript" onclick="setLang('typescript',this)">TS</button>
+        <button class="lang-btn" data-lang="python" onclick="setLang('python',this)">Python</button>
+        <button class="lang-btn" data-lang="go" onclick="setLang('go',this)">Go</button>
+        <button class="run-btn" onclick="runCode()" id="run-btn"><i class="ti ti-player-play" aria-hidden="true"></i> Run</button>
+    </div>
+    <div id="monaco-container"></div>
+    <div class="footer">
+        <div class="meta">
+            <span id="cursor-pos">Ln 1, Col 1</span>
+            <span id="lang-label">JavaScript</span>
+        </div>
+        <button class="submit-btn" onclick="submitCode()"><i class="ti ti-upload" aria-hidden="true"></i> Submit</button>
+    </div>
+</div>
+
+<div id="output-wrap">
+    <div id="output-header"><span><span id="status-dot"></span><span id="output-title">output</span></span><button onclick="document.getElementById('output-wrap').style.display='none'" style="background:none;border:none;cursor:pointer;color:var(--color-text-secondary);font-size:16px;"><i class="ti ti-x" aria-hidden="true"></i></button></div>
+    <div id="output-body" id="out"></div>
+</div>
+
+<form id="code-form" action="/submit" method="POST" style="display:none">
+    <input type="hidden" name="language" id="lang-input" value="javascript">
+    <input type="hidden" name="code_submission" id="code-input">
+</form>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+<script>
+    let editor, currentLang = 'javascript';
+    const langNames = { javascript:'JavaScript', typescript:'TypeScript', python:'Python', go:'Go' };
+    const starters = {
+        javascript: `// Write your JavaScript here\nconsole.log('hello, world');`,
+        typescript: `// Write your TypeScript here\nconst greet = (name: string): string => \`Hello, \${name}!\`;\nconsole.log(greet('world'));`,
+        python: `# Write your Python here\ndef greet(name):\n    return f"Hello, {name}!"\n\nprint(greet("world"))`,
+        go: `// Write your Go here\npackage main\n\nimport "fmt"\n\nfunc main() {\n    fmt.Println("Hello, world!")\n}`
+    };
+
+    require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs' } });
+    require(['vs/editor/editor.main'], function() {
+        const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        editor = monaco.editor.create(document.getElementById('monaco-container'), {
+            value: starters.javascript,
+            language: 'javascript',
+            theme: isDark ? 'vs-dark' : 'vs',
+            fontSize: 13,
+            fontFamily: 'var(--font-mono)',
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            lineNumbers: 'on',
+            renderLineHighlight: 'line',
+            padding: { top: 12, bottom: 12 },
+            automaticLayout: true,
+        });
+        editor.onDidChangeCursorPosition(e => {
+            document.getElementById('cursor-pos').textContent = `Ln ${e.position.lineNumber}, Col ${e.position.column}`;
+        });
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+            monaco.editor.setTheme(e.matches ? 'vs-dark' : 'vs');
+        });
+    });
+
+    function setLang(lang, btn) {
+        currentLang = lang;
+        document.querySelectorAll('.lang-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('lang-label').textContent = langNames[lang];
+        document.getElementById('lang-input').value = lang;
+        if (editor) {
+            monaco.editor.setModelLanguage(editor.getModel(), lang);
+            if (!editor.getValue().trim() || Object.values(starters).includes(editor.getValue())) {
+                editor.setValue(starters[lang]);
+            }
+        }
+    }
+
+    function showOutput(text, isErr) {
+        const wrap = document.getElementById('output-wrap');
+        const body = document.getElementById('output-body');
+        const dot = document.getElementById('status-dot');
+        const title = document.getElementById('output-title');
+        body.textContent = text;
+        dot.className = isErr ? 'err' : 'ok';
+        title.textContent = isErr ? 'error' : 'output';
+        wrap.style.display = 'block';
+    }
+
+    function runCode() {
+        if (!editor) return;
+        const code = editor.getValue();
+        const btn = document.getElementById('run-btn');
+        btn.innerHTML = '<i class="ti ti-loader" aria-hidden="true"></i> Running';
+        if (currentLang === 'javascript') {
+            try {
+                const logs = [];
+                const origLog = console.log;
+                console.log = (...args) => { logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')); };
+                const fn = new Function(code);
+                fn();
+                console.log = origLog;
+                showOutput(logs.join('\n') || '(no output)', false);
+            } catch(e) {
+                showOutput(e.toString(), true);
+            }
+            btn.innerHTML = '<i class="ti ti-player-play" aria-hidden="true"></i> Run';
+        } else {
+            showOutput(`Run is supported for JavaScript only in the browser.\nUse Submit to send ${langNames[currentLang]} code to your Go server.`, false);
+            btn.innerHTML = '<i class="ti ti-player-play" aria-hidden="true"></i> Run';
+        }
+    }
+
+    function submitCode() {
+        if (!editor) return;
+        document.getElementById('code-input').value = editor.getValue();
+        document.getElementById('lang-input').value = currentLang;
+        document.getElementById('code-form').submit();
+    }
+</script>
