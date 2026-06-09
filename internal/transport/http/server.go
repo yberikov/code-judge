@@ -2,19 +2,29 @@ package http
 
 import (
 	"code-judge/internal/service"
-	"fmt"
+	"code-judge/internal/transport/http/middleware"
+	"code-judge/internal/transport/http/model"
+	"encoding/json"
 	"html/template"
+	"log/slog"
 	"net/http"
 	"time"
 )
 
-func NewServer() *http.Server {
+func NewServer(logger *slog.Logger) *http.Server {
 
-	http.Handle("/", http.HandlerFunc(indexHandler))
-	http.Handle("/submit", http.HandlerFunc(submitHandler))
+	http.Handle("/", middleware.Chain(
+		http.HandlerFunc(indexHandler),
+		middleware.LoggerMiddleware(logger),
+	))
+
+	http.Handle("/submit", middleware.Chain(
+		http.HandlerFunc(submitHandler),
+		middleware.LoggerMiddleware(logger),
+	))
+
 	return &http.Server{
-		Addr: ":8080",
-
+		Addr:                         ":8080",
 		DisableGeneralOptionsHandler: false,
 		TLSConfig:                    nil,
 		ReadTimeout:                  10 * time.Second,
@@ -34,12 +44,16 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func submitHandler(w http.ResponseWriter, r *http.Request) {
-	err := r.ParseForm()
-	if err != nil {
-		fmt.Println(err)
+	var req model.SubmitRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	fmt.Println(r.Form["code_submission"][0])
-	service.Execute(r.Form["code_submission"][0])
+	result, err := service.InitSubmission(r.Context(), req.CodeSubmission)
+	if err != nil {
+		return
+	}
+	response, err := json.Marshal(result)
+	w.Write(response)
 }

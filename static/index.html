@@ -46,10 +46,7 @@
     <div id="output-body" id="out"></div>
 </div>
 
-<form id="code-form" action="/submit" method="POST" style="display:none">
-    <input type="hidden" name="language" id="lang-input" value="javascript">
-    <input type="hidden" name="code_submission" id="code-input">
-</form>
+
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
 <script>
@@ -135,10 +132,30 @@
         }
     }
 
-    function submitCode() {
+    async function submitCode() {
         if (!editor) return;
-        document.getElementById('code-input').value = editor.getValue();
-        document.getElementById('lang-input').value = currentLang;
-        document.getElementById('code-form').submit();
+        const code = editor.getValue();
+        const lang = currentLang;
+
+        const btn = document.querySelector('.submit-btn');
+        btn.innerHTML = '<i class="ti ti-loader" aria-hidden="true"></i> Running';
+        btn.disabled = true;
+
+        try {
+            const res = await fetch('/submit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ language: lang, code_submission: code }),
+            });
+
+            const data = await res.json();
+            const isErr = !!data.error;
+            showOutput(data.error || data.output || '(no output)', isErr);
+        } catch (e) {
+            showOutput('Failed to reach server: ' + e.message, true);
+        } finally {
+            btn.innerHTML = '<i class="ti ti-upload" aria-hidden="true"></i> Submit';
+            btn.disabled = false;
+        }
     }
 </script>
